@@ -1,4 +1,4 @@
-#Код у Захара. На уроке будем смотреть и корректировать при необходимости
+
 from telebot import TeleBot
 from logic import *
 from config import *
