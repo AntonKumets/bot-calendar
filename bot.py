@@ -1,99 +1,82 @@
-
 from telebot import TeleBot
 from logic import *
-from config import *
-from telebot import types
+from confic import *
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import sqlite3
 
+bot = TeleBot(token)
 
+db = Calendar("holidays.db")
+db.create_tables()
+db.fill_holidays()
+db.fill_seasons()
 
-BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'
-
-
-bot = telebot.TeleBot(BOT_TOKEN)
-
-# Месяцы-Праздники
-holidays = {
-    'январь': ['1 января — Новый год', '7 января — Рождество'],
-    'февраль': ['23 февраля — День защитника Отечества'],
-    'март': ['8 марта — Международный женский день'],
-    'апрель': [],
-    'май': ['1 мая — Праздник Весны и Труда', '9 мая — День Победы'],
-    'июнь': ['12 июня — День России'],
-    'июль': [],
-    'август': [],
-    'сентябрь': [],
-    'октябрь': [],
-    'ноябрь': ['4 ноября — День народного единства'],
-    'декабрь': []
+months_names = {
+    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
 }
 
-# Сезоны и их месяцы
-seasons = {
-    'Зима': ['январь', 'февраль', 'декабрь'],
-    'Весна': ['март', 'апрель', 'май'],
-    'Лето': ['июнь', 'июль', 'август'],
-    'Осень': ['сентябрь', 'октябрь', 'ноябрь']
-}
-
+def gen_markup():
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 4
+    markup.add(
+        InlineKeyboardButton("Зима", callback_data="winter"),
+        InlineKeyboardButton("Весна", callback_data="spring"),
+        InlineKeyboardButton("Лето", callback_data="summer"),
+        InlineKeyboardButton("Осень", callback_data="autumn")
+    )
+    return markup
 
 @bot.message_handler(commands=['start'])
-def start(message):
-    # Клавиатура(кнопки)
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    season_buttons = [types.KeyboardButton(season) for season in seasons.keys()]
-    markup.add(*season_buttons)
-
-    text = "Привет! Я календарь праздников.\n"
-    text += "Нажми на сезон, чтобы увидеть месяцы:\n"
-    text += "Или напиши /all для всех праздников."
-    bot.send_message(message.chat.id, text, reply_markup=markup)
-
-@bot.message_handler(commands=['all'])
-def show_all(message):
-    result = "Все праздники по месяцам:\n\n"
-    for month in holidays:
-        result += month.capitalize() + ":\n"
-        if len(holidays[month]) == 0:
-            result += "  Нет праздников\n"
-        else:
-            for day in holidays[month]:
-                result += "  • " + day + "\n"
-        result += "\n"
-    bot.send_message(message.chat.id, result)
-
-@bot.message_handler(func=lambda m: m.text in seasons.keys())
-def show_months(message):
-    season = message.text
-    months_list = seasons[season]
-
-    # Клавиатура(с месяцами)
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    month_buttons = [types.KeyboardButton(month) for month in months_list]
-    markup.add(*month_buttons)
-
+def start_command(message):
     bot.send_message(
         message.chat.id,
-        f"Выбран сезон: {season}. Теперь выбери месяц:",
-        reply_markup=markup
+        """Привет! Это бот-календарь, нажимай кнопку нужного времени года, затем нужного месяца, и тебе покажутся все праздники этого месяца.
+Для перезапуска или выбора нового месяца жми /start
+""",
+        reply_markup=gen_markup()
     )
 
-@bot.message_handler(func=lambda m: m.text.lower().strip() in holidays.keys())
-def handle_month(message):
-    user_input = message.text.lower().strip()
-
-    if len(holidays[user_input]) == 0:
-        answer = "В " + user_input + " нет праздников."
-    else:
-        answer = "Праздники в " + user_input + ":\n"
-        for item in holidays[user_input]:
-            answer += "• " + item + "\n"
-
-    bot.send_message(message.chat.id, answer)
-
-@bot.message_handler(func=lambda m: True)
-def handle_other(message):
-    answer = "Не понимаю. Нажми на сезон или месяц из кнопок!"
-    bot.send_message(message.chat.id, answer)
-
-print("Бот запущен!")
-bot.infinity_polling()
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    bot.answer_callback_query(call.id)
+    
+    if call.data in ["winter", "spring", "summer", "autumn"]:
+        season_map = {
+            "winter": "Зима",
+            "spring": "Весна",
+            "summer": "Лето",
+            "autumn": "Осень"
+        }
+        season_ru = season_map[call.data]
+        
+        conn = sqlite3.connect(db.db_name)
+        cur = conn.cursor()
+        cur.execute("SELECT month_id FROM season WHERE season = ?", (season_ru,))
+        month_ids = cur.fetchall()
+        conn.close()
+        
+        markup = InlineKeyboardMarkup()
+        for (month_id,) in month_ids:
+            markup.add(InlineKeyboardButton(
+                months_names[month_id],
+                callback_data=f"month_{month_id}"
+            ))
+        
+        bot.edit_message_text(
+            "Выберите месяц:",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=markup
+        )
+    
+    elif call.data.startswith("month_"):
+        month_id = int(call.data.split("_")[1])
+        
+        conn = sqlite3.connect(db.db_name)
+        cur = conn.cursor()
+        cur.execute("SELECT holidays FROM holidays WHERE month_id = ?", (month_id,))
+        row = cur.fetchone()
+        conn.close()
+bot.infinity_polling(none_stop=True)
