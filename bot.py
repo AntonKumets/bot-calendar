@@ -32,9 +32,7 @@ def gen_markup():
 def start_command(message):
     bot.send_message(
         message.chat.id,
-        """Привет! Это бот-календарь, нажимай кнопку нужного времени года, затем нужного месяца, и тебе покажутся все праздники этого месяца.
-Для перезапуска или выбора нового месяца жми /start
-""",
+        "Привет! Это бот-календарь, нажимай кнопку нужного времени года, затем нужного месяца, и тебе покажутся все праздники этого месяца.\nДля перезапуска или выбора нового месяца жми /start",
         reply_markup=gen_markup()
     )
 
@@ -79,4 +77,15 @@ def callback_query(call):
         cur.execute("SELECT holidays FROM holidays WHERE month_id = ?", (month_id,))
         row = cur.fetchone()
         conn.close()
+        
+        if row:
+            holidays_text = row[0]
+            bot.send_message(call.message.chat.id, f"{months_names[month_id]}:\n{holidays_text}")
+        else:
+            bot.send_message(call.message.chat.id, "Праздники не найдены.")
+
+bot.infinity_polling(none_stop=True)
+        row = cur.fetchone()
+        conn.close()
+
 bot.infinity_polling(none_stop=True)
